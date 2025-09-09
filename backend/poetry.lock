@@ -149,6 +149,18 @@ dev = ["pre-commit", "tox"]
 testing = ["coverage", "pytest", "pytest-benchmark"]
 
 [[package]]
+name = "pokerkit"
+version = "0.6.3"
+description = "An open-source Python library for poker game simulations, hand evaluations, and statistical analysis"
+optional = false
+python-versions = ">=3.11"
+groups = ["main"]
+files = [
+    {file = "pokerkit-0.6.3-py3-none-any.whl", hash = "sha256:2c20a70014b864e3178b8d928cdb8b674c2463ba56f0a10f906cf79e1b60fe8d"},
+    {file = "pokerkit-0.6.3.tar.gz", hash = "sha256:15673d530063fabc113e76b40130ab1303863b613cc01dff6ea8d31288bc27c4"},
+]
+
+[[package]]
 name = "psycopg2-binary"
 version = "2.9.10"
 description = "psycopg2 - Python-PostgreSQL Database Adapter"
@@ -476,4 +488,4 @@ standard = ["colorama (>=0.4) ; sys_platform == \"win32\"", "httptools (>=0.6.3)
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13"
-content-hash = "64797eacc33e9400b4f17f97b1a3e14d608ed49c4a7db9132be3df64fd544d01"
+content-hash = "aa61c750e8ab28578c2abd51b483f140b375e1b5fb26d4d4a7d9495b9f92bb01"
