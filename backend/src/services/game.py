@@ -2,10 +2,11 @@ from pokerkit import Automation, NoLimitTexasHoldem
 import uuid
 from src.models.hand import HandHistory
 from src.models.player import Player
+import random
 
-def play_hand(players: list[Player], dealer_index: int) -> HandHistory:
+def play_hand(user_actions: list[str]) -> HandHistory:
     hand_id = str(uuid.uuid4())
-    num_players = len(players)
+    players = [Player.create() for _ in range(6)]
     stacks = tuple([10000 for _ in players])
 
     state = NoLimitTexasHoldem.create_state(
@@ -23,75 +24,95 @@ def play_hand(players: list[Player], dealer_index: int) -> HandHistory:
         (20, 40),
         40,
         stacks,
-        num_players,
+        len(players),
     )
 
-    dealer = players[dealer_index % num_players]
-    small_blind = players[(dealer_index + 1) % num_players]
-    big_blind = players[(dealer_index + 2) % num_players]
+    # dealer = players[dealer_index % len(players)]
+    # small_blind = players[(dealer_index + 1) % len(players)]
+    # big_blind = players[(dealer_index + 2) % len(players)]
 
     hole_cards = {}
-    for i, player in enumerate(players):
-        cards = state.deal_hole()
-        hole_cards[player.id] = str(cards)
+    for p in players:
+        hole_cards[p.id] = str(state.deal_hole())
 
-    dealt_str = "\n".join([f"Player {i} ({player.id}): {cards}" for i, (player, cards) in enumerate(zip(players, hole_cards.values()))])
+    #dealt_str = "\n".join([f"Player {i} ({player.id}): {cards}" for i, (player, cards) in enumerate(zip(players, hole_cards.values()))])
+    dealt_str = "\n".join([f"{pid}: {cards}" for pid, cards in hole_cards.items()])
 
     actions = []
+    actions_index = 0
+
     while state.status == "RUNNING":
         if state.actor_indices:
             current_player_index = state.actor_indices[0]
-            current_player = players[current_player_index]
 
-            if state.can_check_or_call():
-                amount = state.checking_or_calling_amount
-                if amount == 0:
-                    state.check_or_call()
-                elif amount <= 100:
-                    state.check_or_call()
-                    actions.append(f"c")
+            # Logic made for the user
+            if current_player_index == 0:
+                if actions_index < len(user_actions):
+                    act = user_actions[actions_index]
+                    actions_index += 1
+
+                    if act == "f":
+                        state.fold()
+                        actions.append("User folds")
+                    elif act == "c":
+                        state.check_or_call()
+                        actions.append("User calls")
+                    elif act.startswith("r"):
+                        amount = int(act.split()[1])
+                        state.complete_bet_or_raise_to(amount)
+                        actions.append(f"User raises to ${amount}")
+                    else:
+                        state.check_or_call()
+                        actions.append("User checks")
                 else:
+                    state.check_or_call()
+                    actions.append("User checks (default)")
+
+            # Logic made for bots
+            else:
+                if state.can_check_or_call():
+                    if random.random() < 0.7:
+                        state.check_or_call()
+                        actions.append(f"Player {current_player_index} calls")
+                    else:
+                        state.fold()
+                        actions.append(f"Player {current_player_index} folds")
+                elif state.can_fold():
                     state.fold()
-                    actions.append(f"f")
-            elif state.can_fold():
-                state.fold()
-                actions.append(f"f")
+                    actions.append(f"Player {current_player_index} folds")
         
         else:
             if state.can_burn_card():
                 state.burn_card()
             elif state.can_deal_board():
-                board_before = len(state.board_cards) if hasattr(state, 'board_cards') else 0
                 state.deal_board()
-                board_after = len(state.board_cards) if hasattr(state, 'board_cards') else 0
-                
-                if board_after == 3 and board_before == 0:
-                    flop_cards = ''.join(str(card) for card in state.board_cards[-3:])
-                    actions.append(flop_cards)
-                elif board_after == 4 and board_before == 3: 
-                    turn_card = str(state.board_cards[-1])
-                    actions.append(turn_card)
-                elif board_after == 5 and board_before == 4:
-                    river_card = str(state.board_cards[-1])  
-                    actions.append(river_card)
             else:
                 break
 
-    actions_str = "\n".join(actions)
+    # actions_str = "\n".join(actions)
 
-    main_info = f"Stack {stacks}, Dealer: {dealer}, Blinds: {small_blind}/{big_blind}"
+    # main_info = f"Stack {stacks}, Dealer: {dealer}, Blinds: {small_blind}/{big_blind}"
 
-    winnings = []
-    for i, player in enumerate(players):
+    # winnings = []
+    # for i, player in enumerate(players):
+    #     net = state.stacks[i] - stacks[i]
+    #     sign = "+" if net >= 0 else ""
+    #     winnings.append(f"Player {i} ({player.id}): {sign}${abs(net)}")
+    # result_str = "\n".join(winnings)
+
+    result_lines = []
+    for i, p in enumerate(players):
         net = state.stacks[i] - stacks[i]
         sign = "+" if net >= 0 else ""
-        winnings.append(f"Player {i} ({player.id}): {sign}${abs(net)}")
-    result_str = "\n".join(winnings)
+        result_lines.append(f"Player {i} ({p.id}): {sign}{net}")
+    result_str = "\n".join(result_lines)
+
+    main_info = f"Stacks: {stacks}, Blinds: {state.small_blind}/{state.big_blind}"
 
     return HandHistory(
         id = hand_id,
         mainInfo = main_info,
         dealt = dealt_str,
-        actions = actions_str,
+        actions = "\n".join(actions),
         result = result_str
     )
