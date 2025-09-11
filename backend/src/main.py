@@ -1,14 +1,26 @@
 from fastapi import FastAPI, HTTPException
 from src.repositories.hand_repo import HandRepository
-from routers.players import router as players_router
+#from routers.players import router as players_router
 from src.services.game import play_hand
 from src.models.hand import HandHistory
+from src.models.player import Player
 
 app = FastAPI()
 repo = HandRepository()
 
 #app.include_router(api_router)
 #app.include_router(players_router)
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+@app.post("/hands/play")
+def play_hand_endpoint():
+    # right now just auto-play a hand with 6 players
+    players = [Player(id=f"Player{i}") for i in range(6)]
+    hand = play_hand(players)
+    return hand.__dict__
 
 @app.get("/")
 def root():
