@@ -6,12 +6,11 @@ authors = [
     {name = "Domceee",email = "118061793+Domceee@users.noreply.github.com"}
 ]
 packages = [{include = "src"}]
-readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi (>=0.116.1,<0.117.0)",
     "uvicorn (>=0.35.0,<0.36.0)",
-    "psycopg2-binary (>=2.9.10,<3.0.0)",
+    "psycopg (>=3.2,<4.0)",
     "pydantic (>=2.11.7,<3.0.0)",
     "pokerkit (>=0.6.3,<0.7.0)"
 ]
@@ -23,4 +22,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.2"
+
+[tool.poetry.dependencies]
+psycopg = {version = "^3.2", extras = ["binary"]}
 
