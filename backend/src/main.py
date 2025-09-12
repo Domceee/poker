@@ -1,44 +1,28 @@
 from fastapi import FastAPI, HTTPException
-from src.repositories.hand_repo import HandRepository
-#from routers.players import router as players_router
-from src.services.game import play_hand
-from src.models.hand import HandHistory
-from src.models.player import Player
+from src.db import init_db
+from src.routers.hands import router as hands_router
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
-repo = HandRepository()
 
-#app.include_router(api_router)
-#app.include_router(players_router)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-@app.post("/hands/play")
-def play_hand_endpoint():
-    # right now just auto-play a hand with 6 players
-    players = [Player(id=f"Player{i}") for i in range(6)]
-    hand = play_hand(players)
-    return hand.__dict__
+@app.on_event("startup")
+def startup():
+    init_db()
 
 @app.get("/")
 def root():
-    return {"message": "Game is running"}
+    return {"message": "Game running"}
 
-@app.post("/hands/", response_model=HandHistory)
-def create_hand(user_actions: list[str]):
-    hand = play_hand(user_actions)
-    repo.add_hand(hand)
-    return hand
+@app.get("/health")
+def health():
+    return {"status": "ok", "message": "Service is healthy"}
 
-@app.get("/hands/{hand_id}", response_model=HandHistory)
-def get_hand(hand_id: str):
-    hand = repo.get_hand(hand_id)
-    if not hand:
-        raise HTTPException(status_code=404, detail="Hand not found")
-    return hand
-
-@app.get("/hands/", response_model=list[HandHistory])
-def list_hands():
-    return repo.list_hands()
+app.include_router(hands_router)

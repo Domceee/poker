@@ -1,14 +1,15 @@
-from dataclasses import dataclass
-from typing import List
+from dataclasses import dataclass, field
+from typing import List, Dict, Any
 from src.models.player import Player
 
 @dataclass
 class GameState:
     id: str
     players: List[Player]
+    dealer_index: int
     stacks: List[int]
-    pot: int
-    board: List[str]
-    current_player: int
-    actions: List[str]
-    status: str
+    poker_state: Any
+    board: List[str] = field(default_factory=list)
+    hole_cards: Dict[int, str] = field(default_factory=dict)
+    actions_log: List[str] = field(default_factory=list)
+    status: str = "RUNNING"

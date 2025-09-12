@@ -1,13 +1,11 @@
 import psycopg
+import os
 
 def get_db_connection():
-    conn = psycopg.connect(
-        dbname="poker_db",
-        user="user",
-        password="password",
-        host="db", 
-        port=5432
-    )
+    database_url = os.getenv("DATABASE_URL")
+
+    conn = psycopg.connect(database_url)
+    return conn
 
 def init_db():
     with get_db_connection() as conn:

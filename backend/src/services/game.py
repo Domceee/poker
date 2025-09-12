@@ -3,17 +3,19 @@ import uuid
 from src.models.hand import HandHistory
 from src.models.player import Player
 from src.models.game_state import GameState
+from src.repositories.hand_repo import HandRepository
 import random
+from typing import Optional
 
-def play_hand(user_actions: list[str] = None) -> HandHistory:
+_ACTIVE_GAMES: dict[str, GameState] = {}
 
-    if user_actions is None:
-        user_actions = []
+big_blind = 40
+small_blind = 20
+starting_stack = 10000
 
-    players = [Player.create() for _ in range(6)]
-    stacks = tuple([10000 for _ in players])
-
-    state = NoLimitTexasHoldem.create_state(
+def create_state(num_players: int):
+    stacks = tuple([starting_stack for _ in range(num_players)])
+    return NoLimitTexasHoldem.create_state(
         (
             Automation.ANTE_POSTING,
             Automation.BET_COLLECTION,
@@ -25,247 +27,262 @@ def play_hand(user_actions: list[str] = None) -> HandHistory:
         ),
         False,
         0,
-        (20, 40),
-        40,
-        stacks,
-        len(players),
-    )
-
-    # Main information that will be registered in the database
-    hand_id = f"Hand #{str(uuid.uuid4())}"
-    # Format: "Stack 10000; Dealer: Player 3; Player 4 Small blind; Player 6 Big blind"
-    main_info = ""
-    # Format: "Hands: Player1: Tc2c; Player2: 5d4c; Player 3: Ah4s; Player 4: QcTd; Player 5: Qh4d; Player 6: Ks5s"
-    dealt_str = ""
-    # Format: "Actions: f:f:f:r300:c:f 3hKdQs x:b100:c Ac x:x Th b80:r160:c"
-    actions = []
-    # Format: "Winnings: Player 1: -40; Player 2: 0; Player 3: -560; Player 4: +850; Player 5: -200; Player 6: -50"
-    result_str = ""
-
-    #---------------------------------------------Dealer, Small Blind, Big Blind---------------------------------------------
-
-    dealer_index = 2
-    dealer = f"Player {dealer_index + 1}"
-    small_blind = f"Player {(dealer_index + 1) % 6 + 1}"
-    big_blind = f"Player {(dealer_index + 3) % 6 + 1}"
-    main_info = f"Stack 10000; Dealer: {dealer}; {small_blind} Small blind; {big_blind} Big blind"
-
-    #------------------------------------------------------------------------------------------------------------------------
-
-    #------------------------------------------------------Hand deals--------------------------------------------------------
-    hole_cards = {}
-    first_cards = []
-    second_cards = []
-    
-    for p in players:
-        first_cards.append(state.deal_hole())
-    for p in players:
-        second_cards.append(state.deal_hole())
-
-    for i, p in enumerate(players):
-        card1 = first_cards[i]
-        card2 = second_cards[i]
-        hole_cards[p.id] = f"{card1}, {card2}"
-
-    dealt_str = "Hands: " + "; ".join([
-        f"Player{i+1}: {str(first_cards[i].cards[0])}{str(second_cards[i].cards[0])}"
-        for i in range(6)
-    ])
-    #-------------------------------------------------------------------------------------------------------------------------
-
-    #-------------------------------------------------------Gameplay----------------------------------------------------------
-
-    street_names = ["Pre-flop", "Flop", "Turn", "River"]
-    actions_index = 0
-
-    while state.status:
-        # Handle player actions
-        if state.actor_indices:
-            current_player_index = state.actor_indices[0]
-            current_player = players[current_player_index]
-            
-            # Get current street info
-            current_street = getattr(state, 'street_index', 0)
-            street_name = street_names[min(current_street, len(street_names)-1)]
-            
-            # Get betting information
-            can_check = state.checking_or_calling_amount == 0
-            call_amount = state.checking_or_calling_amount or 0
-            current_stack = state.stacks[current_player_index]
-
-            # User logic (Player 0)
-            if current_player_index == 0:
-                if actions_index < len(user_actions):
-                    action = user_actions[actions_index].strip().lower()
-                    actions_index += 1
-                    
-                    if action == "f":
-                        state.fold()
-                        actions.append(f"{street_name}: User folds")
-                        
-                    elif action == "c":
-                        state.check_or_call()
-                        if can_check:
-                            actions.append(f"{street_name}: User checks")
-                        else:
-                            actions.append(f"{street_name}: User calls ${call_amount}")
-                            
-                    elif action.startswith("r"):
-                        try:
-                            parts = action.split()
-                            if len(parts) >= 2:
-                                raise_amount = int(parts[1])
-                                if raise_amount <= current_stack:
-                                    state.complete_bet_or_raise_to(raise_amount)
-                                    actions.append(f"{street_name}: User raises to ${raise_amount}")
-                                else:
-                                    # All-in if raise amount exceeds stack
-                                    state.complete_bet_or_raise_to(current_stack)
-                                    actions.append(f"{street_name}: User goes all-in for ${current_stack}")
-                            else:
-                                # Invalid raise format, default to call/check
-                                state.check_or_call()
-                                action_desc = "checks" if can_check else f"calls ${call_amount}"
-                                actions.append(f"{street_name}: User {action_desc} (invalid raise)")
-                        except (ValueError, IndexError):
-                            # Invalid raise amount, default to call/check
-                            state.check_or_call()
-                            action_desc = "checks" if can_check else f"calls ${call_amount}"
-                            actions.append(f"{street_name}: User {action_desc} (invalid raise)")
-                    else:
-                        # Unknown action, default to check/call
-                        state.check_or_call()
-                        action_desc = "checks" if can_check else f"calls ${call_amount}"
-                        actions.append(f"{street_name}: User {action_desc} (unknown action)")
-                else:
-                    # No more user actions, default behavior
-                    state.check_or_call()
-                    action_desc = "checks" if can_check else f"calls ${call_amount}"
-                    actions.append(f"{street_name}: User {action_desc} (auto)")
-
-            # Bot logic (Players 1-5)
-            else:
-                # Improved bot decision making
-                if can_check:
-                    # Can check for free
-                    action_weights = [0.6, 0.25, 0.15]  # [check, bet_small, bet_large]
-                    action = random.choices(['check', 'bet_small', 'bet_large'], 
-                                          weights=action_weights)[0]
-                    
-                    if action == 'check':
-                        state.check_or_call()
-                        actions.append(f"{street_name}: Player {current_player_index} checks")
-                        
-                    elif action == 'bet_small':
-                        bet_size = min(call_amount + 40, current_stack)  # Small bet
-                        if bet_size > call_amount:
-                            state.complete_bet_or_raise_to(bet_size)
-                            actions.append(f"{street_name}: Player {current_player_index} bets ${bet_size}")
-                        else:
-                            state.check_or_call()
-                            actions.append(f"{street_name}: Player {current_player_index} checks")
-                            
-                    else:  # bet_large
-                        bet_size = min(call_amount + 120, current_stack)  # Large bet
-                        if bet_size > call_amount:
-                            state.complete_bet_or_raise_to(bet_size)
-                            actions.append(f"{street_name}: Player {current_player_index} bets ${bet_size}")
-                        else:
-                            state.check_or_call()
-                            actions.append(f"{street_name}: Player {current_player_index} checks")
-                
-                else:
-                    # Must call or fold
-                    call_ratio = call_amount / current_stack if current_stack > 0 else 1
-                    
-                    # Adjust fold probability based on call amount relative to stack
-                    if call_ratio > 0.5:  # Large bet relative to stack
-                        fold_prob = 0.8
-                    elif call_ratio > 0.2:  # Medium bet
-                        fold_prob = 0.5
-                    else:  # Small bet
-                        fold_prob = 0.3
-                    
-                    if random.random() < fold_prob:
-                        state.fold()
-                        actions.append(f"{street_name}: Player {current_player_index} folds")
-                    else:
-                        # Decide between call and raise
-                        if random.random() < 0.8:  # 80% call, 20% raise
-                            state.check_or_call()
-                            actions.append(f"{street_name}: Player {current_player_index} calls ${call_amount}")
-                        else:
-                            # Raise
-                            raise_size = min(call_amount * 2.5, current_stack)
-                            if raise_size > call_amount:
-                                state.complete_bet_or_raise_to(int(raise_size))
-                                actions.append(f"{street_name}: Player {current_player_index} raises to ${int(raise_size)}")
-                            else:
-                                state.check_or_call()
-                                actions.append(f"{street_name}: Player {current_player_index} calls ${call_amount}")
-        
-        else:
-            # Handle card dealing and burning
-            if state.can_burn_card():
-                state.burn_card()
-                
-            elif state.can_deal_board():
-                state.deal_board()
-                if hasattr(state, 'board_cards') and state.board_cards:
-                    board = list(state.board_cards)
-                        
-            else:
-                break
-
-    #-------------------------------------------------------------------------------------------------------------------------
-
-    #-------------------------------------------------------Results-----------------------------------------------------------
-
-    result_lines = []
-    for i, p in enumerate(players):
-        net = state.stacks[i] - stacks[i]
-        sign = "+" if net >= 0 else ""
-        result_lines.append(f"Player {i}: {sign}{net}")
-    result_str = "; ".join(result_lines)
-
-    #-------------------------------------------------------------------------------------------------------------------------
-
-    # Hand History after the game
-    return HandHistory(
-        id = hand_id,
-        mainInfo = main_info,
-        dealt = dealt_str,
-        actions = str(actions),
-        result = result_str
-    )
-
-
-def initialize_game_state(num_players: int = 6):
-    players = Player.default()
-    stacks = [10000 for _ in range(num_players)]
-    dealer_index = 0  # Starting with Player 1 as dealer
-
-    state = NoLimitTexasHoldem.create_state(
-        (
-            Automation.ANTE_POSTING,
-            Automation.BET_COLLECTION,
-            Automation.BLIND_OR_STRADDLE_POSTING,
-            Automation.HOLE_CARDS_SHOWING_OR_MUCKING,
-            Automation.HAND_KILLING,
-            Automation.CHIPS_PUSHING,
-            Automation.CHIPS_PULLING,
-        ),
-        False,
-        0,
-        (20, 40),
-        40,
+        (small_blind, big_blind),
+        big_blind,
         stacks,
         num_players,
     )
-    return state
 
 def start_hand(num_players: int = 6, dealer_index: int = 0) -> GameState:
-    players = [Player(i+1) for i in range(num_players)]
-    p_state = initialize_game_state(num_players)
+    players = [Player.create(i+1) for i in range(num_players)]
+    poker_state = create_state(num_players)
 
-    
+    dealer = dealer_index + 1
+    sb = (dealer_index + 1) % num_players + 1
+    bb = (dealer_index + 2) % num_players + 1
+
+    hole_cards = {}
+    for i in range(num_players):
+        cards = poker_state.deal_hole()
+        hole_cards[i + 1] = str(cards)
+
+    game_id = str(uuid.uuid4())
+    gs = GameState(
+        id=game_id,
+        players=players,
+        dealer_index=dealer_index,
+        stacks=[starting_stack for _ in players],
+        poker_state=poker_state,
+        hole_cards=hole_cards,
+        actions_log=[],
+        board=[],
+        status="RUNNING",
+    )
+    _ACTIVE_GAMES[game_id] = gs
+
+    for i, cards in hole_cards.items():
+        gs.actions_log.append(f"Player {i} is dealt {cards}")
+
+    gs.actions_log.append(f"{dealer} is the dealer")
+    gs.actions_log.append(f"{sb} posts small blind - {small_blind} chips")
+    gs.actions_log.append(f"{bb} posts big blind - {big_blind} chips")
+
+    return gs
+
+def get_state(game_id: str) -> Optional[GameState]:
+    return _ACTIVE_GAMES.get(game_id)
+
+def append_board_token(gs: GameState):
+    state = gs.poker_state
+    if hasattr(state, "board_cards") and state.board_cards:
+        token = "".join(str(c) for c in state.board_cards)
+        # append token as a single action element
+        gs.actions_log.append(token)
+        gs.board = [str(c) for c in state.board_cards]
+
+def actor_indices(state):
+    return getattr(state, "actor_indices", None)
+
+def get_check_call_amount(state) -> int:
+    return getattr(state, "checking_or_calling_amount", 0) or 0
+
+def bots_act_until_user_turn(gs: GameState):
+    state = gs.poker_state
+
+    # loop while there are actors and next actor is not seat 1 (index 0)
+    while actor_indices(state):
+        current_index = state.actor_indices[0]  # 0-based index in PokerKit
+        # convert to seat number (1..N) if needed, but we compare to 0 (user seat)
+        if current_index == 0:
+            # user's turn
+            break
+
+        # bot's turn: make decision based on available actions
+        try:
+            if getattr(state, "can_check_or_call", False) and state.can_check_or_call():
+                amt = get_check_call_amount(state)
+                if amt == 0:
+                    state.check_or_call()
+                    gs.actions_log.append("x")
+                else:
+                    # bot decides to call or fold depending on amt
+                    decision = random.random()
+                    if decision < 0.7 or amt <= big_blind * 2:
+                        state.check_or_call()
+                        gs.actions_log.append("c")
+                    else:
+                        state.fold()
+                        gs.actions_log.append("f")
+            elif getattr(state, "can_bet", False) and state.can_bet():
+                # bot posts a small bet
+                bet_amt = min(big_blind * 2, gs.stacks_start[current_index])
+                state.complete_bet_or_raise_to(bet_amt)
+                gs.actions_log.append(f"b{bet_amt}")
+            elif getattr(state, "can_fold", False) and state.can_fold():
+                state.fold()
+                gs.actions_log.append("f")
+            else:
+                # unknown state: break to avoid infinite loop
+                break
+        except Exception:
+            # safe fallback: fold
+            try:
+                state.fold()
+                gs.actions_log.append("f")
+            except Exception:
+                break
+
+        # When round ends, PokerKit will allow burn/deal board — detect and append board token
+        if not actor_indices(state):
+            if getattr(state, "can_burn_card", False) and state.can_burn_card():
+                state.burn_card()
+            if getattr(state, "can_deal_board", False) and state.can_deal_board():
+                state.deal_board()
+                append_board_token(gs)
+
+    return gs
+
+def apply_action(game_id: str, action_token: str) -> GameState:
+    """
+    Apply a single user action, then progress bots until user's turn again or the hand finishes.
+    action_token examples: 'f', 'x', 'c', 'b40', 'r200', 'allin'
+    """
+    gs = get_state(game_id)
+    if gs is None:
+        raise KeyError("Game not found")
+
+    state = gs.poker_state
+
+    # if no actor indices, progress board cards first (if applicable)
+    if not actor_indices(state):
+        if getattr(state, "can_burn_card", False) and state.can_burn_card():
+            state.burn_card()
+        if getattr(state, "can_deal_board", False) and state.can_deal_board():
+            state.deal_board()
+            append_board_token(gs)
+
+    # ensure it's user's turn; if not, let bots act until it is
+    if actor_indices(state) and state.actor_indices[0] != 0:
+        bots_act_until_user_turn(gs)
+        # after bots, check again
+        if not actor_indices(state):
+            if getattr(state, "can_deal_board", False) and state.can_deal_board():
+                state.deal_board()
+                append_board_token(gs)
+
+    # Now apply user action if actor is user
+    if actor_indices(state) and state.actor_indices[0] == 0:
+        tok = action_token.strip().lower()
+        try:
+            if tok == "f":
+                state.fold()
+                gs.actions_log.append("f")
+            elif tok == "x":
+                state.check_or_call()
+                gs.actions_log.append("x")
+            elif tok == "c":
+                state.check_or_call()
+                gs.actions_log.append("c")
+            elif tok.startswith("b"):
+                amt = int(tok[1:])
+                state.complete_bet_or_raise_to(amt)
+                gs.actions_log.append(f"b{amt}")
+            elif tok.startswith("r"):
+                amt = int(tok[1:])
+                state.complete_bet_or_raise_to(amt)
+                gs.actions_log.append(f"r{amt}")
+            elif tok == "allin":
+                # try all-in (raise to player's stack)
+                # pokerkit may have method for allin; approximate by using big amount
+                player_stack = gs.stacks_start[0]
+                state.complete_bet_or_raise_to(player_stack)
+                gs.actions_log.append("allin")
+            else:
+                # fallback: check or call
+                state.check_or_call()
+                token = "x" if get_check_call_amount(state) == 0 else "c"
+                gs.actions_log.append(token)
+        except Exception:
+            # if invalid action for pokerkit, default to fold as safe
+            try:
+                state.fold()
+                gs.actions_log.append("f")
+            except Exception:
+                pass
+
+    # after user acted, let bots continue until it's user's turn again or hand finishes
+    bots_act_until_user_turn(gs)
+
+    # finally handle board dealing if needed
+    if not actor_indices(state):
+        if getattr(state, "can_burn_card", False) and state.can_burn_card():
+            state.burn_card()
+        if getattr(state, "can_deal_board", False) and state.can_deal_board():
+            state.deal_board()
+            append_board_token(gs)
+
+    # if hand finished, finalize and persist
+    finished_flag = False
+    # pokerkit might expose status via .status.name or .status
+    status_value = getattr(state, "status", None)
+    if status_value is not None:
+        if getattr(status_value, "name", None) == "FINISHED" or status_value == "FINISHED":
+            finished_flag = True
+
+    if finished_flag:
+        finalize_hand(gs)
+
+    return gs
+
+def finalize_hand(gs: GameState) -> HandHistory:
+    state = gs.poker_state
+
+    # build dealt string
+    hands_entries = []
+    for seat in range(1, len(gs.players) + 1):
+        hc = gs.hole_cards.get(seat, "")
+        hands_entries.append(f"Player{seat}: {hc.replace(' ', '')}")
+    dealt_str = "Hands: " + "; ".join(hands_entries)
+
+    # actions string: join tokens with spaces; spec shows spaces between board tokens and actions
+    actions_str = " ".join(gs.actions_log)
+
+    # compute final stacks, net per player
+    final_stacks = getattr(state, "stacks", None)
+    if final_stacks is None:
+        try:
+            final_stacks = state.stacks
+        except Exception:
+            final_stacks = gs.stacks_start
+
+    winnings_parts = []
+    for i in range(len(gs.players)):
+        start = gs.stacks_start[i]
+        final = final_stacks[i]
+        net = final - start
+        sign = "+" if net > 0 else ""
+        winnings_parts.append(f"Player {i+1}: {sign}{net}")
+
+    result_str = "Winnings: " + "; ".join(winnings_parts)
+
+    # main info: dealer + blinds
+    dealer = f"Player {gs.dealer_index + 1}"
+    small_blind = f"Player {(gs.dealer_index + 1) % len(gs.players) + 1}"
+    big_blind = f"Player {(gs.dealer_index + 2) % len(gs.players) + 1}"
+    main_info = f"Stack {starting_stack}; Dealer: {dealer}; {small_blind} Small blind; {big_blind} Big blind"
+
+    # Hand id: use gs.id
+    hand = HandHistory.create(id=gs.id, mainInfo=main_info, dealt=dealt_str, actions=actions_str, result=result_str)
+
+    # save via repository
+    try:
+        HandRepository.save(hand)
+    except Exception:
+        # if DB save fails, still return hand object (but log/raise in real app)
+        pass
+
+    # remove in-memory game
+    _ACTIVE_GAMES.pop(gs.id, None)
+    gs.status = "FINISHED"
+
+    return hand
