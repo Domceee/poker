@@ -238,3 +238,34 @@ def play_hand(user_actions: list[str] = None) -> HandHistory:
         actions = str(actions),
         result = result_str
     )
+
+
+def initialize_game_state(num_players: int = 6):
+    players = Player.default()
+    stacks = [10000 for _ in range(num_players)]
+    dealer_index = 0  # Starting with Player 1 as dealer
+
+    state = NoLimitTexasHoldem.create_state(
+        (
+            Automation.ANTE_POSTING,
+            Automation.BET_COLLECTION,
+            Automation.BLIND_OR_STRADDLE_POSTING,
+            Automation.HOLE_CARDS_SHOWING_OR_MUCKING,
+            Automation.HAND_KILLING,
+            Automation.CHIPS_PUSHING,
+            Automation.CHIPS_PULLING,
+        ),
+        False,
+        0,
+        (20, 40),
+        40,
+        stacks,
+        num_players,
+    )
+    return state
+
+def start_hand(num_players: int = 6, dealer_index: int = 0) -> GameState:
+    players = [Player(i+1) for i in range(num_players)]
+    p_state = initialize_game_state(num_players)
+
+    
