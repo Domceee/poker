@@ -20,6 +20,6 @@ export const getResult = async (hand_id: string) => {
     return api.get(`/hands/${hand_id}/result`);
 };
 
-// export const getHistory = async () => {
-//     return api.get("/hands/");
-// };
+export const getHistory = async () => {
+    return api.get("/hands/");
+};

@@ -25,7 +25,7 @@ def start(req: StartRequest):
 
 @router.get("/hands/{hand_id}")
 def api_get_state(hand_id: str):
-    gs = get_state(hand_id)
+    gs = get_state()
     if not gs:
         # maybe finished and persisted; attempt to get from repository
         saved = HandRepository.get(hand_id)
@@ -38,7 +38,7 @@ def api_get_state(hand_id: str):
         "hole_cards": {1: gs.hole_cards.get(1, "")},
         "actions": gs.actions_log,
         "board": gs.board,
-        "stacks": gs.stacks_start,
+        "stacks": getattr(gs, 'stacks', gs.stacks_start),
         "status": gs.status,
     }
 
@@ -55,9 +55,18 @@ def api_action(req: ActionRequest):
     except Exception as ex:
         raise HTTPException(status_code=400, detail=str(ex))
 
-    #if gs.status == "FINISHED":
-        # saved = HandRepository.get(gs.id)
-        #return {"finished": True, "hand": saved.__dict__ if saved else None}
+    if gs.status == "FINISHED":
+        saved = HandRepository.get(gs.id)
+        return {
+            "finished": True, 
+            "hand": saved.__dict__ if saved else None,
+            "actions": gs.actions_log,  # ADDED: Still return current actions
+            "id": gs.id,
+            "hole_cards": {1: gs.hole_cards.get(1, "")},
+            "board": gs.board,
+            "stacks": getattr(gs, 'stacks', gs.stacks_start),
+            "status": gs.status,
+        }
 
     return {
         "id": gs.id,
@@ -77,7 +86,19 @@ def api_result(hand_id: str):
     return saved.__dict__
 
 
-# @router.get("/hands/")
-# def api_list():
-#     hands = HandRepository.list_all()
-#     return [h.__dict__ for h in hands]
+@router.get("/hands/")
+def api_list():
+    # CHANGED: Uncommented and fixed the list endpoint for hand history
+    hands = HandRepository.list_all()
+    formatted_hands = []
+    
+    for hand in hands:
+        # CHANGED: Format each hand in the required display format
+        formatted_hand = f"Hand #{hand.id}\n"
+        formatted_hand += f"{hand.mainInfo}\n"
+        formatted_hand += f"{hand.dealt}\n"
+        formatted_hand += f"Actions: {hand.actions}\n"
+        formatted_hand += f"{hand.result}"
+        formatted_hands.append(formatted_hand)
+    
+    return {"hands": formatted_hands}
