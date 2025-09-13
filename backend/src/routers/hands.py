@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-from src.services.game import start_hand, get_state, apply_action
+from src.services.game import start_hand, get_state, apply_action, _CURRENT_GAME
 from src.repositories.hand_repo import HandRepository
 from fastapi.responses import JSONResponse
 
@@ -43,26 +43,28 @@ def api_get_state(hand_id: str):
     }
 
 
-@router.post("/hands/{hand_id}/action")
-def api_action(hand_id: str, req: ActionRequest):
+@router.post("/hands/action")
+def api_action(req: ActionRequest):
     try:
-        gs = apply_action(hand_id, req.action)
+        gs = get_state()
+        if not gs:
+            raise HTTPException(status_code=404, detail="Hand not found")
+        gs = apply_action(gs, req.action)
     except KeyError:
         raise HTTPException(status_code=404, detail="Hand not found")
     except Exception as ex:
         raise HTTPException(status_code=400, detail=str(ex))
 
-    if gs.status == "FINISHED":
-        # fetch saved history
-        saved = HandRepository.get(gs.id)
-        return {"finished": True, "hand": saved.__dict__ if saved else None}
+    #if gs.status == "FINISHED":
+        # saved = HandRepository.get(gs.id)
+        #return {"finished": True, "hand": saved.__dict__ if saved else None}
 
     return {
         "id": gs.id,
         "hole_cards": {1: gs.hole_cards.get(1, "")},
         "actions": gs.actions_log,
         "board": gs.board,
-        "stacks": gs.stacks_start,
+        "stacks": gs.stacks,
         "status": gs.status,
     }
 

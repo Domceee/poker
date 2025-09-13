@@ -8,8 +8,8 @@ export const startGame = async (num_players = 6, dealer_index = 0) => {
     return api.post("/hands/start", { num_players, dealer_index });
 }
 
-export const playerAction = async (action: string, amount?: number) => {
-    return api.post(`/hands/action`, { action, amount });
+export const playerAction = async (action: string) => {
+    return api.post(`/hands/action`, { action });
 };
 
 export const getState = async (hand_id: string) => {

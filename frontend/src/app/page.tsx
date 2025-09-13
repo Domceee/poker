@@ -5,6 +5,7 @@ import { startGame, playerAction } from "./api";
 export default function Home() {
   const[log, setLog] = useState<string[]>([]);
   const[history, setHistory] = useState<string[]>([]);
+  const [gameId, setGameId] = useState<string | null>(null);
 
   // useEffect(() => {
   //   getHistory().then((response) => {
@@ -14,8 +15,13 @@ export default function Home() {
 
   const handleAction = async (action: string, amount?: number) => {
     try {
-      const response = await playerAction(action, amount);
-      setLog((prevLog) => [...prevLog, response.data.message]);
+      console.log("Sending action: ", action, "for game: ", gameId)
+      const response = await playerAction(action);
+      console.log("Action response: ", response.data)
+      setLog((prevLog) => [
+        ...prevLog,
+        ...(response.data.log || []),
+      ]);
     } catch (error) {
       console.error("Error performing action:", error);
     }
@@ -26,7 +32,7 @@ export default function Home() {
       const response = await startGame();
       setLog((prevLog) => [
         ...prevLog,
-        `${(response.data.log || []).join("\n")}`,
+        ...(response.data.actions || []),
       ]);
     } catch (error) {
       console.error("Error starting game:", error);
@@ -56,18 +62,18 @@ export default function Home() {
 
         <div className="flex gap-2">
           <button className="px-4 py-2 bg-blue-500 rounded text-black hover:bg-gray-300"
-          onClick={() => handleAction("fold")}>Fold</button>
+          onClick={() => handleAction("f")}>Fold</button>
           <button className="px-4 py-2 bg-green-500 rounded text-black hover:bg-gray-300"
-          onClick={() => handleAction("check")}>Check</button>
+          onClick={() => handleAction("c")}>Check</button>
           <button className="px-4 py-2 bg-green-500 rounded text-black hover:bg-gray-300"
-          onClick={() => handleAction("call")}>Call</button>
+          onClick={() => handleAction("c")}>Call</button>
           <button className="px-2 py-2 bg-yellow-500 rounded text-black hover:bg-gray-300">-</button>
           <button className="px-4 py-2 bg-yellow-500 rounded text-black hover:bg-gray-300"
-          onClick={() => handleAction("bet", 20)}>Bet 20</button>
+          onClick={() => handleAction("b20")}>Bet 20</button>
           <button className="px-2 py-2 bg-yellow-500 rounded text-black hover:bg-gray-300">+</button>
           <button className="px-2 py-2 bg-yellow-500 rounded text-black hover:bg-gray-300">-</button>
           <button className="px-4 py-2 bg-yellow-500 rounded text-black hover:bg-gray-300"
-          onClick={() => handleAction("raise", 40)}>Raise 40</button>
+          onClick={() => handleAction("r40")}>Raise 40</button>
           <button className="px-2 py-2 bg-yellow-500 rounded text-black hover:bg-gray-300">+</button>
           <button className="px-4 py-2 bg-red-500 rounded text-black hover:bg-gray-300"
           onClick={() => handleAction("allin")}>ALL IN</button>
