@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Any
 from src.models.player import Player
+import uuid
 
 @dataclass
 class GameState:

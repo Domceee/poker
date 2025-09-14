@@ -14,7 +14,8 @@ class StartRequest(BaseModel):
 
 
 class ActionRequest(BaseModel):
-    action: str  # 'f', 'x', 'c', 'b40', 'r160', 'allin'
+    action: str
+    amount: int | None = None
 
 
 @router.post("/hands/start")
@@ -23,33 +24,13 @@ def start(req: StartRequest):
     return { "game_id": gs.id, "log": gs.actions_log }
 
 
-@router.get("/hands/{hand_id}")
-def api_get_state(hand_id: str):
-    gs = get_state()
-    if not gs:
-        # maybe finished and persisted; attempt to get from repository
-        saved = HandRepository.get(hand_id)
-        if saved:
-            return {"finished": True, **saved.__dict__}
-        raise HTTPException(status_code=404, detail="Hand not found")
-
-    return {
-        "id": gs.id,
-        "hole_cards": {1: gs.hole_cards.get(1, "")},
-        "actions": gs.actions_log,
-        "board": gs.board,
-        "stacks": getattr(gs, 'stacks', gs.stacks_start),
-        "status": gs.status,
-    }
-
-
 @router.post("/hands/action")
 def api_action(req: ActionRequest):
     try:
         gs = get_state()
         if not gs:
             raise HTTPException(status_code=404, detail="Hand not found")
-        gs = apply_action(gs, req.action)
+        gs = apply_action(gs, req.action, req.amount)
     except KeyError:
         raise HTTPException(status_code=404, detail="Hand not found")
     except Exception as ex:
@@ -60,11 +41,11 @@ def api_action(req: ActionRequest):
         return {
             "finished": True, 
             "hand": saved.__dict__ if saved else None,
-            "actions": gs.actions_log,  # ADDED: Still return current actions
+            "actions": gs.actions_log,
             "id": gs.id,
             "hole_cards": {1: gs.hole_cards.get(1, "")},
             "board": gs.board,
-            "stacks": getattr(gs, 'stacks', gs.stacks_start),
+            "stacks": getattr(gs, 'stacks', gs.stacks),
             "status": gs.status,
         }
 
@@ -77,23 +58,12 @@ def api_action(req: ActionRequest):
         "status": gs.status,
     }
 
-
-@router.get("/hands/{hand_id}/result")
-def api_result(hand_id: str):
-    saved = HandRepository.get(hand_id)
-    if not saved:
-        raise HTTPException(status_code=404, detail="Result not found")
-    return saved.__dict__
-
-
 @router.get("/hands/")
 def api_list():
-    # CHANGED: Uncommented and fixed the list endpoint for hand history
     hands = HandRepository.list_all()
     formatted_hands = []
     
     for hand in hands:
-        # CHANGED: Format each hand in the required display format
         formatted_hand = f"Hand #{hand.id}\n"
         formatted_hand += f"{hand.mainInfo}\n"
         formatted_hand += f"{hand.dealt}\n"

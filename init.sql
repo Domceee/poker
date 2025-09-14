@@ -1,8 +1,7 @@
 CREATE TABLE IF NOT EXISTS hands (
-    id UUID PRIMARY KEY,
-    board TEXT[],
-    hole_cards JSONB,
-    actions_log TEXT[],
-    stacks_start JSONB,
-    status TEXT
-);
+                id TEXT PRIMARY KEY,
+                stack TEXT NOT NULL,
+                hands TEXT NOT NULL,
+                actions TEXT NOT NULL,
+                result TEXT NOT NULL
+            );
