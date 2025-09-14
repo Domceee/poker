@@ -52,8 +52,6 @@ def start_hand(num_players: int = 6, dealer_index: int = 0) -> GameState:
     first_card = []
     second_card = []
     for i in range(num_players):
-        # cards = poker_state.deal_hole()
-        # hole_cards[i + 1] = str(cards)
         first_card.append(poker_state.deal_hole())
     for i in range(num_players):
         second_card.append(poker_state.deal_hole())
@@ -118,9 +116,29 @@ def get_check_call_amount(state) -> int:
     return getattr(state, "checking_or_calling_amount", 0) or 0
 
 def update_stacks(gs: GameState):
-    """Update GameState stacks from poker_state"""
+    """Update GameState stacks from poker_state and validate consistency"""
     if hasattr(gs.poker_state, 'stacks'):
         gs.stacks = list(gs.poker_state.stacks)
+        print(f"DEBUG: Updated stacks - {gs.stacks}")
+        
+        all_in_players = [i for i, stack in enumerate(gs.stacks) if stack == 0]
+        if all_in_players:
+            print(f"DEBUG: Players all-in: {[i+1 for i in all_in_players]}")
+
+def can_player_act(gs: GameState, player_index: int) -> bool:
+    """Check if player can take actions (has chips and isn't folded)"""
+    if player_index >= len(gs.stacks):
+        return False
+    
+    has_chips = gs.stacks[player_index] > 0
+    
+    state = gs.poker_state
+    if hasattr(state, 'statuses') and state.statuses:
+        is_active = True
+    else:
+        is_active = True
+    
+    return has_chips and is_active
 
 def apply_stacks_to_players(stack_amount: int) -> GameState:
     global _CURRENT_GAME, starting_stack
@@ -136,46 +154,81 @@ def bots_act_until_user_turn(gs: GameState):
 
     while actor_indices(state):
         current_index = state.actor_indices[0]
-        if current_index == 0:  # User's turn
+        if current_index == 0:
             break
+
+        update_stacks(gs)
+        bot_stack = gs.stacks[current_index]
+        
+        print(f"DEBUG: Bot {current_index + 1} has {bot_stack} chips")
 
         try:
             call_amount = get_check_call_amount(state)
             
+            if bot_stack <= 0:
+                if state.can_fold():
+                    state.fold()
+                    gs.actions_log.append(f"Player {current_index + 1} folds (no chips)")
+                elif call_amount == 0 and state.can_check_or_call():
+                    state.check_or_call()
+                    gs.actions_log.append(f"Player {current_index + 1} checks")
+                else:
+                    print(f"DEBUG: Bot {current_index + 1} has no chips and no valid actions")
+                    break
+                continue
+            
             if state.can_check_or_call():
                 if call_amount == 0:
-                    # No bet to call - decide whether to check or bet
                     decision = random.random()
-                    if decision < 0.6:  # 60% chance to check
+                    if decision < 0.6:
                         state.check_or_call()
                         gs.actions_log.append(f"Player {current_index + 1} checks")
-                    elif state.can_complete_bet_or_raise_to():  # 40% chance to bet
-                        bet_amt = min(big_blind * random.randint(2, 4), state.stacks[current_index])
-                        state.complete_bet_or_raise_to(bet_amt)
-                        gs.actions_log.append(f"Player {current_index + 1} bets {bet_amt} chips")
+                    elif state.can_complete_bet_or_raise_to():
+                        max_bet = min(big_blind * random.randint(2, 4), bot_stack)
+                        if max_bet >= big_blind:
+                            state.complete_bet_or_raise_to(max_bet)
+                            if max_bet == bot_stack:
+                                gs.actions_log.append(f"Player {current_index + 1} bets all-in for {max_bet} chips")
+                            else:
+                                gs.actions_log.append(f"Player {current_index + 1} bets {max_bet} chips")
+                        else:
+                            state.check_or_call()
+                            gs.actions_log.append(f"Player {current_index + 1} checks")
                     else:
                         state.check_or_call()
                         gs.actions_log.append(f"Player {current_index + 1} checks")
                 else:
-                    # There's a bet to call - decide call/raise/fold based on amount
                     decision = random.random()
-                    pot_odds = call_amount / max(call_amount, big_blind)
                     
-                    if call_amount > big_blind * 5:  # Large bet - more likely to fold
+                    if bot_stack < call_amount:
+                        if decision < 0.4 and bot_stack > 0:
+                            state.complete_bet_or_raise_to(bot_stack)
+                            gs.actions_log.append(f"Player {current_index + 1} calls all-in for {bot_stack} chips")
+                        else:
+                            state.fold()
+                            gs.actions_log.append(f"Player {current_index + 1} folds")
+                    elif call_amount > big_blind * 5:
                         if decision < 0.6:
                             state.fold()
                             gs.actions_log.append(f"Player {current_index + 1} folds")
                         else:
                             state.check_or_call()
                             gs.actions_log.append(f"Player {current_index + 1} calls {call_amount} chips")
-                    elif decision < 0.7:  # Normal bet - likely to call
+                    elif decision < 0.7:
                         state.check_or_call()
                         gs.actions_log.append(f"Player {current_index + 1} calls {call_amount} chips")
-                    elif decision < 0.85 and state.can_complete_bet_or_raise_to():  # Sometimes raise
-                        raise_amt = min(call_amount * 2, state.stacks[current_index])
-                        state.complete_bet_or_raise_to(raise_amt)
-                        gs.actions_log.append(f"Player {current_index + 1} raises to {raise_amt} chips")
-                    else:  # Sometimes fold
+                    elif decision < 0.85 and state.can_complete_bet_or_raise_to():
+                        max_raise = min(call_amount * 2, bot_stack)
+                        if max_raise > call_amount:
+                            state.complete_bet_or_raise_to(max_raise)
+                            if max_raise == bot_stack:
+                                gs.actions_log.append(f"Player {current_index + 1} raises all-in to {max_raise} chips")
+                            else:
+                                gs.actions_log.append(f"Player {current_index + 1} raises to {max_raise} chips")
+                        else:
+                            state.check_or_call()
+                            gs.actions_log.append(f"Player {current_index + 1} calls {call_amount} chips")
+                    else:
                         state.fold()
                         gs.actions_log.append(f"Player {current_index + 1} folds")
                         
@@ -188,16 +241,19 @@ def bots_act_until_user_turn(gs: GameState):
                 
         except Exception as e:
             print(f"DEBUG: Bot {current_index + 1} action failed: {e}")
-            # Safe fallback
             try:
                 if state.can_fold():
                     state.fold()
                     gs.actions_log.append(f"Player {current_index + 1} folds")
                 elif state.can_check_or_call():
-                    state.check_or_call()
                     call_amount = get_check_call_amount(state)
-                    action_name = "checks" if call_amount == 0 else f"calls {call_amount} chips"
-                    gs.actions_log.append(f"Player {current_index + 1} {action_name}")
+                    if call_amount > 0 and bot_stack < call_amount and bot_stack > 0:
+                        state.complete_bet_or_raise_to(bot_stack)
+                        gs.actions_log.append(f"Player {current_index + 1} calls all-in for {bot_stack} chips")
+                    else:
+                        state.check_or_call()
+                        action_name = "checks" if call_amount == 0 else f"calls {call_amount} chips"
+                        gs.actions_log.append(f"Player {current_index + 1} {action_name}")
                 else:
                     break
             except Exception:
@@ -205,7 +261,6 @@ def bots_act_until_user_turn(gs: GameState):
 
         update_stacks(gs)
 
-        # Check if round ended - deal next street if possible
         if not actor_indices(state):
             if getattr(state, "can_burn_card", False) and state.can_burn_card():
                 state.burn_card()
@@ -231,6 +286,15 @@ def apply_action(game_id: str, action_token: str, amount: int | None = None) -> 
 
     if actor_indices(state) and state.actor_indices[0] == 0:
         tok = action_token.strip().lower()
+        player_stack = state.stacks[0]
+        
+        update_stacks(gs)
+        current_stack = gs.stacks[0]
+        
+        print(f"DEBUG: Player action '{tok}', amount={amount}")
+        print(f"DEBUG: Player stack in poker_state: {player_stack}")  
+        print(f"DEBUG: Player stack in GameState: {current_stack}")
+        
         try:
             if tok == "f" and state.can_fold():
                 state.fold()
@@ -247,81 +311,99 @@ def apply_action(game_id: str, action_token: str, amount: int | None = None) -> 
             elif tok == "c":
                 call_amount = get_check_call_amount(state)
                 if call_amount > 0 and state.can_check_or_call():
-                    state.check_or_call()
-                    gs.actions_log.append(f"Player 1 calls {call_amount} chips")
+                    if current_stack < call_amount:
+                        if current_stack > 0:
+                            state.complete_bet_or_raise_to(current_stack)
+                            gs.actions_log.append(f"Player 1 calls all-in for {current_stack} chips")
+                        else:
+                            raise Exception("No chips remaining to call")
+                    else:
+                        state.check_or_call()
+                        gs.actions_log.append(f"Player 1 calls {call_amount} chips")
                 else:
                     raise Exception("No bet to call - use check instead")
                     
             elif tok == "b":
                 print(f"DEBUG: Attempting to bet {amount}")
-                print(f"DEBUG: Can complete bet: {state.can_complete_bet_or_raise_to()}")
-                print(f"DEBUG: Current stack: {state.stacks[0]}")
                 
-                # FIX: Check call_amount, not amount
+                if current_stack <= 0:
+                    raise Exception("Cannot bet - no chips remaining")
+                
                 call_amount = get_check_call_amount(state)
-                print(f"DEBUG: Call amount: {call_amount}")
-                
                 if call_amount > 0:
                     raise Exception(f"Cannot bet - there's already a bet of {call_amount} to call")
                 
-                if amount and state.can_complete_bet_or_raise_to() and amount <= state.stacks[0] and amount >= big_blind:
-                    state.complete_bet_or_raise_to(amount)
-                    gs.actions_log.append(f"Player 1 bets {amount} chips")
-                    print(f"DEBUG: Bet successful")
+                if not amount or amount <= 0:
+                    raise Exception("Bet amount must be positive")
+                    
+                max_bet = min(amount, current_stack)
+                
+                if state.can_complete_bet_or_raise_to() and max_bet >= big_blind:
+                    state.complete_bet_or_raise_to(max_bet)
+                    if max_bet == current_stack:
+                        gs.actions_log.append(f"Player 1 bets all-in for {max_bet} chips")
+                    else:
+                        gs.actions_log.append(f"Player 1 bets {max_bet} chips")
                 else:
-                    print(f"DEBUG: Cannot bet - insufficient stack or below minimum")
-                    raise Exception("Cannot bet - invalid amount or insufficient stack")
+                    raise Exception(f"Cannot bet - minimum bet is {big_blind}")
                     
             elif tok == "r":
                 print(f"DEBUG: Attempting to raise to {amount}")
                 
-                # Can only raise if there's an existing bet
+                if current_stack <= 0:
+                    raise Exception("Cannot raise - no chips remaining")
+                
                 call_amount = get_check_call_amount(state)
                 if call_amount == 0:
                     raise Exception("Cannot raise - no bet to raise")
                 
-                min_raise = call_amount * 2
-                if amount and state.can_complete_bet_or_raise_to() and amount <= state.stacks[0] and amount >= min_raise:
-                    state.complete_bet_or_raise_to(amount)
-                    gs.actions_log.append(f"Player 1 raises to {amount} chips")
-                    print(f"DEBUG: Raise successful")
+                if not amount or amount <= call_amount:
+                    raise Exception(f"Raise amount must be greater than {call_amount}")
+                
+                max_raise = min(amount, current_stack)
+                
+                if state.can_complete_bet_or_raise_to():
+                    state.complete_bet_or_raise_to(max_raise)
+                    if max_raise == current_stack:
+                        gs.actions_log.append(f"Player 1 raises all-in to {max_raise} chips")
+                    else:
+                        gs.actions_log.append(f"Player 1 raises to {max_raise} chips")
                 else:
-                    print(f"DEBUG: Cannot raise - insufficient stack or below minimum raise")
-                    raise Exception(f"Cannot raise - minimum raise is {min_raise}")
+                    raise Exception("Cannot raise at this time")
                     
             elif tok == "allin":
-                # All-in logic
-                player_stack = state.stacks[0]
-                print(f"DEBUG: Attempting all-in with stack {player_stack}")
+                print(f"DEBUG: Attempting all-in with stack {current_stack}")
                 
-                if state.can_complete_bet_or_raise_to() and player_stack > 0:
-                    state.complete_bet_or_raise_to(player_stack)
-                    gs.actions_log.append("Player 1 goes all-in")
-                    print(f"DEBUG: All-in successful")
+                if current_stack <= 0:
+                    raise Exception("Cannot go all-in - no chips remaining")
+                
+                if state.can_complete_bet_or_raise_to():
+                    state.complete_bet_or_raise_to(current_stack)
+                    gs.actions_log.append(f"Player 1 goes all-in for {current_stack} chips")
                 else:
-                    print(f"DEBUG: Cannot go all-in")
-                    raise Exception("Cannot go all-in")
+                    raise Exception("Cannot go all-in at this time")
+                    
             else:
-                # Default action - try to check/call appropriately
                 call_amount = get_check_call_amount(state)
                 if state.can_check_or_call():
-                    state.check_or_call()
-                    action_name = "checks" if call_amount == 0 else f"calls {call_amount} chips"
-                    gs.actions_log.append(f"Player 1 {action_name}")
+                    if current_stack < call_amount and current_stack > 0:
+                        state.complete_bet_or_raise_to(current_stack) 
+                        gs.actions_log.append(f"Player 1 calls all-in for {current_stack} chips")
+                    else:
+                        state.check_or_call()
+                        action_name = "checks" if call_amount == 0 else f"calls {call_amount} chips"
+                        gs.actions_log.append(f"Player 1 {action_name}")
                 else:
                     raise Exception("No valid action available")
                     
         except Exception as e:
             print(f"DEBUG: Exception in user action: {e}")
-            # Re-raise the exception so the API can handle it properly
             raise e
 
     update_stacks(gs)
     
-    # Continue with bot actions
     bots_act_until_user_turn(gs)
 
-    # Handle board dealing between rounds
     if not actor_indices(state):
         if getattr(state, "can_burn_card", False) and state.can_burn_card():
             state.burn_card()
@@ -329,10 +411,8 @@ def apply_action(game_id: str, action_token: str, amount: int | None = None) -> 
             state.deal_board()
             append_board_token(gs)
 
-    # Check for game end
     finished_flag = False
     
-    # Check PokerKit status
     status_value = getattr(state, "status", None)
     if status_value is not None:
         status_str = str(status_value).upper()
@@ -340,17 +420,24 @@ def apply_action(game_id: str, action_token: str, amount: int | None = None) -> 
             finished_flag = True
             print(f"DEBUG: Game finished via status: {status_value}")
 
-    # Check if no more actions and no more cards to deal
     if not finished_flag and not actor_indices(state):
         can_deal_more = (getattr(state, "can_burn_card", False) and state.can_burn_card()) or \
                        (getattr(state, "can_deal_board", False) and state.can_deal_board())
+        
         if not can_deal_more:
             finished_flag = True
             print(f"DEBUG: Game finished - no more actions or cards")
 
+    if not finished_flag:
+        active_players = [i for i, stack in enumerate(gs.stacks) if stack > 0]
+        print(f"DEBUG: Active players with chips: {len(active_players)}")
+        
+        if len(active_players) <= 1:
+            finished_flag = True
+            print(f"DEBUG: Game finished - only {len(active_players)} players with chips")
+
     print(f"DEBUG: Finished flag final value: {finished_flag}")
     if finished_flag:
-        print("DEBUG: About to call finalize_hand()")
         finalize_hand(gs)
 
     return gs
