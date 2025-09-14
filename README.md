@@ -24,4 +24,4 @@ After the game ends the hand that was saved to database is displayed on the righ
 Refresh history button refreshes and lists all the information contained in the database.
 
 Deployment:<br />
-docker-compose up --build<br />
+docker-compose up --build or docker-compose up<br />
