@@ -23,3 +23,11 @@ export const getResult = async (hand_id: string) => {
 export const getHistory = async () => {
     return api.get("/hands/");
 };
+
+export const resetGame = async(stack: number) => {
+    return api.post("/reset/game", { stack })
+}
+
+export const applyStacks = async (stack: number) => {
+  return api.post("/apply/stacks", { stack });
+};

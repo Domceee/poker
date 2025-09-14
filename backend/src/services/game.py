@@ -93,6 +93,14 @@ def start_hand(num_players: int = 6, dealer_index: int = 0) -> GameState:
 def get_state() -> Optional[GameState]:
     return _CURRENT_GAME
 
+def reset_game(stack_amount: int = None) -> None:
+    global _CURRENT_GAME, starting_stack
+    _CURRENT_GAME = None
+    
+    if stack_amount is not None:
+        starting_stack = stack_amount
+        print(f"DEBUG: Global starting_stack reset to {starting_stack}")
+
 def active_game() -> bool:
     return _CURRENT_GAME is not None
 
@@ -113,6 +121,13 @@ def update_stacks(gs: GameState):
     """Update GameState stacks from poker_state"""
     if hasattr(gs.poker_state, 'stacks'):
         gs.stacks = list(gs.poker_state.stacks)
+
+def apply_stacks_to_players(stack_amount: int) -> GameState:
+    global _CURRENT_GAME, starting_stack
+    starting_stack = stack_amount
+
+    if _CURRENT_GAME is not None:
+        _CURRENT_GAME.stacks = [stack_amount for _ in _CURRENT_GAME.players]
 #----------------------------------------------------------------------------------------------------------
 
 #---------------------------------------- Bot actions until user turn -------------------------------------
@@ -237,31 +252,27 @@ def apply_action(game_id: str, action_token: str, amount: int | None = None) -> 
                 else:
                     raise Exception("No bet to call - use check instead")
                     
-            #elif tok.startswith("b"):
             elif tok == "b":
-                #amt = int(tok[1:])
                 print(f"DEBUG: Attempting to bet {amount}")
                 print(f"DEBUG: Can complete bet: {state.can_complete_bet_or_raise_to()}")
                 print(f"DEBUG: Current stack: {state.stacks[0]}")
-                print(f"DEBUG: Call amount: {get_check_call_amount(state)}")
                 
-                #call_amount = get_check_call_amount(state)
-                if amount > 0:
-                #if call_amount > 0:
+                # FIX: Check call_amount, not amount
+                call_amount = get_check_call_amount(state)
+                print(f"DEBUG: Call amount: {call_amount}")
+                
+                if call_amount > 0:
                     raise Exception(f"Cannot bet - there's already a bet of {call_amount} to call")
                 
-                #if state.can_complete_bet_or_raise_to() and amt <= state.stacks[0] and amt >= big_blind:
-                if state.can_complete_bet_or_raise_to() and amount <= state.stacks[0] and amount >= big_blind:
+                if amount and state.can_complete_bet_or_raise_to() and amount <= state.stacks[0] and amount >= big_blind:
                     state.complete_bet_or_raise_to(amount)
                     gs.actions_log.append(f"Player 1 bets {amount} chips")
                     print(f"DEBUG: Bet successful")
                 else:
                     print(f"DEBUG: Cannot bet - insufficient stack or below minimum")
-                    raise Exception("Cannot bet")
+                    raise Exception("Cannot bet - invalid amount or insufficient stack")
                     
-            #elif tok.startswith("r"):
             elif tok == "r":
-                #amt = int(tok[1:])
                 print(f"DEBUG: Attempting to raise to {amount}")
                 
                 # Can only raise if there's an existing bet
@@ -270,16 +281,16 @@ def apply_action(game_id: str, action_token: str, amount: int | None = None) -> 
                     raise Exception("Cannot raise - no bet to raise")
                 
                 min_raise = call_amount * 2
-                if state.can_complete_bet_or_raise_to() and amount <= state.stacks[0] and amount >= min_raise:
+                if amount and state.can_complete_bet_or_raise_to() and amount <= state.stacks[0] and amount >= min_raise:
                     state.complete_bet_or_raise_to(amount)
                     gs.actions_log.append(f"Player 1 raises to {amount} chips")
                     print(f"DEBUG: Raise successful")
                 else:
                     print(f"DEBUG: Cannot raise - insufficient stack or below minimum raise")
-                    raise Exception("Cannot raise")
+                    raise Exception(f"Cannot raise - minimum raise is {min_raise}")
                     
             elif tok == "allin":
-                # FIXED: All-in logic
+                # All-in logic
                 player_stack = state.stacks[0]
                 print(f"DEBUG: Attempting all-in with stack {player_stack}")
                 
@@ -302,19 +313,8 @@ def apply_action(game_id: str, action_token: str, amount: int | None = None) -> 
                     
         except Exception as e:
             print(f"DEBUG: Exception in user action: {e}")
-            # Fallback to fold if action fails
-            try:
-                if state.can_fold():
-                    state.fold()
-                    gs.actions_log.append("Player 1 folds")
-                else:
-                    # Force check/call if can't fold
-                    state.check_or_call()
-                    call_amount = get_check_call_amount(state)
-                    action_name = "checks" if call_amount == 0 else f"calls {call_amount} chips"
-                    gs.actions_log.append(f"Player 1 {action_name}")
-            except Exception:
-                pass
+            # Re-raise the exception so the API can handle it properly
+            raise e
 
     update_stacks(gs)
     
@@ -329,7 +329,7 @@ def apply_action(game_id: str, action_token: str, amount: int | None = None) -> 
             state.deal_board()
             append_board_token(gs)
 
-    # ENHANCED: Better game end detection
+    # Check for game end
     finished_flag = False
     
     # Check PokerKit status
@@ -348,21 +348,10 @@ def apply_action(game_id: str, action_token: str, amount: int | None = None) -> 
             finished_flag = True
             print(f"DEBUG: Game finished - no more actions or cards")
 
-    print(f"DEBUG: Actor indices: {actor_indices(state)}")
-    print(f"DEBUG: Finished flag: {finished_flag}")
-    
-
-    print(f"DEBUG: Checking game end conditions...")
-    print(f"DEBUG: Actor indices: {actor_indices(state)}")
-    print(f"DEBUG: State status: {getattr(state, 'status', 'NO_STATUS')}")
-    print(f"DEBUG: Can burn card: {getattr(state, 'can_burn_card', False)}")
-    print(f"DEBUG: Can deal board: {getattr(state, 'can_deal_board', False)}")
-    if finished_flag:
-        finalize_hand(gs)
-
     print(f"DEBUG: Finished flag final value: {finished_flag}")
     if finished_flag:
         print("DEBUG: About to call finalize_hand()")
+        finalize_hand(gs)
 
     return gs
 #-----------------------------------------------------------------------------------------------------------------
