@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from models.player import Player
+from src.models.player import Player
 
 router = APIRouter()
 
